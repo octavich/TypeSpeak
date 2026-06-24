@@ -34,7 +34,10 @@ struct SpotlightView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12)))
         .onExitCommand { onClose() }            // Esc
-        .onAppear { focused = true }
+        .onAppear {
+            // Defer one runloop tick so the panel is key before we grab focus.
+            DispatchQueue.main.async { focused = true }
+        }
     }
 
     private func send() {

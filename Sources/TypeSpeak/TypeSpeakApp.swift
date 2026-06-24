@@ -51,9 +51,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPanel() {
         let panel = panel ?? makePanel()
         self.panel = panel
+
+        // Fresh SwiftUI content every show: re-fires .onAppear (refocus) and
+        // resets the text field, fixing stale focus / leftover text on reopen.
+        let view = SpotlightView(onClose: { [weak self] in self?.hidePanel() })
+            .environmentObject(router)
+        panel.contentView = NSHostingView(rootView: view)
+
         center(panel)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        panel.makeKey()
     }
 
     private func hidePanel() {
@@ -61,14 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makePanel() -> SpotlightPanel {
-        let view = SpotlightView(onClose: { [weak self] in self?.hidePanel() })
-            .environmentObject(router)
-        let hosting = NSHostingView(rootView: view)
         let panel = SpotlightPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 80),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
-        panel.contentView = hosting
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
