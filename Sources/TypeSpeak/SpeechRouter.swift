@@ -3,16 +3,17 @@ import CoreAudio
 
 /// Synthesizes text and routes the audio into a chosen output device (BlackHole),
 /// so other apps can pick that device as their microphone.
+/// Settings persist across launches via UserDefaults (devices stored by stable UID).
 @MainActor
 final class SpeechRouter: ObservableObject {
 
     @Published var devices: [AudioDevice] = []
-    @Published var selectedDeviceID: AudioDeviceID?          // virtual mic (BlackHole)
-    @Published var monitorEnabled: Bool = false             // hear yourself in headphones
-    @Published var monitorDeviceID: AudioDeviceID?          // headphones
+    @Published var selectedDeviceID: AudioDeviceID? { didSet { save() } }   // virtual mic (BlackHole)
+    @Published var monitorEnabled: Bool = false { didSet { save() } }       // hear yourself in headphones
+    @Published var monitorDeviceID: AudioDeviceID? { didSet { save() } }    // headphones
     @Published var voices: [AVSpeechSynthesisVoice] = []
-    @Published var selectedVoiceID: String?
-    @Published var rate: Float = AVSpeechUtteranceDefaultSpeechRate
+    @Published var selectedVoiceID: String? { didSet { save() } }
+    @Published var rate: Float = AVSpeechUtteranceDefaultSpeechRate { didSet { save() } }
     @Published var isSpeaking = false
     @Published var status: String = ""
 
@@ -20,15 +21,70 @@ final class SpeechRouter: ObservableObject {
     private let monitorOut = AudioOutput()
     private let synth = AVSpeechSynthesizer()
     private var pendingBuffers: [AVAudioPCMBuffer] = []
+    private var loading = false   // suppress save() while restoring
+    private(set) var lastSpoken: String?
 
     struct AudioDevice: Identifiable, Hashable {
         let id: AudioDeviceID
+        let uid: String
         let name: String
+    }
+
+    private enum Key {
+        static let micUID = "micUID"
+        static let monitorUID = "monitorUID"
+        static let monitorEnabled = "monitorEnabled"
+        static let voiceID = "voiceID"
+        static let rate = "rate"
     }
 
     init() {
         reloadDevices()
         reloadVoices()
+        restore()
+    }
+
+    // MARK: - Persistence
+
+    private func save() {
+        guard !loading else { return }
+        let d = UserDefaults.standard
+        d.set(uid(for: selectedDeviceID), forKey: Key.micUID)
+        d.set(uid(for: monitorDeviceID), forKey: Key.monitorUID)
+        d.set(monitorEnabled, forKey: Key.monitorEnabled)
+        d.set(selectedVoiceID, forKey: Key.voiceID)
+        d.set(rate, forKey: Key.rate)
+    }
+
+    private func restore() {
+        loading = true
+        defer { loading = false }
+        let d = UserDefaults.standard
+        if let mic = d.string(forKey: Key.micUID), let id = deviceID(forUID: mic) {
+            selectedDeviceID = id
+        }
+        if let mon = d.string(forKey: Key.monitorUID), let id = deviceID(forUID: mon) {
+            monitorDeviceID = id
+        }
+        if d.object(forKey: Key.monitorEnabled) != nil {
+            monitorEnabled = d.bool(forKey: Key.monitorEnabled)
+        }
+        if let v = d.string(forKey: Key.voiceID),
+           voices.contains(where: { $0.identifier == v }) {
+            selectedVoiceID = v
+        }
+        if d.object(forKey: Key.rate) != nil {
+            rate = d.float(forKey: Key.rate)
+        }
+    }
+
+    private func uid(for id: AudioDeviceID?) -> String? {
+        guard let id else { return nil }
+        return devices.first { $0.id == id }?.uid
+    }
+
+    private func deviceID(forUID uid: String) -> AudioDeviceID? {
+        devices.first { $0.uid == uid }?.id
     }
 
     // MARK: - Voices
@@ -59,11 +115,11 @@ final class SpeechRouter: ObservableObject {
 
     func reloadDevices() {
         devices = Self.outputDevices()
-        if selectedDeviceID == nil {
+        if selectedDeviceID == nil || !devices.contains(where: { $0.id == selectedDeviceID }) {
             selectedDeviceID = devices.first { $0.name.localizedCaseInsensitiveContains("BlackHole") }?.id
                 ?? devices.first?.id
         }
-        if monitorDeviceID == nil {
+        if monitorDeviceID == nil || !devices.contains(where: { $0.id == monitorDeviceID }) {
             // Default monitor: AirPods/headphones, else built-in speakers, else first non-BlackHole.
             monitorDeviceID = devices.first { $0.name.localizedCaseInsensitiveContains("AirPods") }?.id
                 ?? devices.first { $0.name.localizedCaseInsensitiveContains("Speakers") }?.id
@@ -84,7 +140,7 @@ final class SpeechRouter: ObservableObject {
 
         return ids.compactMap { id -> AudioDevice? in
             guard outputChannelCount(id) > 0 else { return nil }
-            return AudioDevice(id: id, name: deviceName(id))
+            return AudioDevice(id: id, uid: deviceUID(id), name: deviceName(id))
         }
     }
 
@@ -105,14 +161,23 @@ final class SpeechRouter: ObservableObject {
     }
 
     private static func deviceName(_ id: AudioDeviceID) -> String {
+        cfStringProperty(id, kAudioObjectPropertyName) ?? "Unknown"
+    }
+
+    /// Stable identifier that survives reboots / reconnects — unlike AudioDeviceID.
+    private static func deviceUID(_ id: AudioDeviceID) -> String {
+        cfStringProperty(id, kAudioDevicePropertyDeviceUID) ?? "uid-\(id)"
+    }
+
+    private static func cfStringProperty(_ id: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> String? {
         var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioObjectPropertyName,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
-        var name: Unmanaged<CFString>?
+        var value: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        let err = AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &name)
-        guard err == noErr, let cf = name?.takeRetainedValue() else { return "Unknown" }
+        let err = AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value)
+        guard err == noErr, let cf = value?.takeRetainedValue() else { return nil }
         return cf as String
     }
 
@@ -125,6 +190,8 @@ final class SpeechRouter: ObservableObject {
             status = "Нет выходного устройства"
             return
         }
+
+        lastSpoken = trimmed
 
         let utterance = AVSpeechUtterance(string: trimmed)
         utterance.rate = rate
@@ -144,6 +211,15 @@ final class SpeechRouter: ObservableObject {
             }
             Task { @MainActor in self.pendingBuffers.append(pcm) }
         }
+    }
+
+    /// Re-speak the last phrase (bound to a hotkey).
+    func repeatLast() {
+        guard let last = lastSpoken else {
+            status = "Нечего повторять"
+            return
+        }
+        speak(last)
     }
 
     private func flush(to deviceID: AudioDeviceID) {

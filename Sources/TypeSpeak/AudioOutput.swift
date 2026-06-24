@@ -22,7 +22,7 @@ final class AudioOutput {
             let err = AudioUnitSetProperty(
                 unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
                 0, &dev, UInt32(MemoryLayout<AudioDeviceID>.size))
-            if err != noErr { throw NSError(domain: "Narrator", code: Int(err)) }
+            if err != noErr { throw NSError(domain: "TypeSpeak", code: Int(err)) }
         }
         engine.connect(player, to: engine.mainMixerNode, format: newFormat)
         format = newFormat
