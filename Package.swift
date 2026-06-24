@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Narrator",
+    name: "TypeSpeak",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "Narrator",
-            path: "Sources/Narrator"
+            name: "TypeSpeak",
+            path: "Sources/TypeSpeak"
         )
     ]
 )
