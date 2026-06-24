@@ -28,17 +28,6 @@ struct SpotlightView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
-
-            if router.isSpeaking || !router.status.isEmpty {
-                HStack {
-                    Text(router.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 10)
-            }
         }
         .frame(width: 560)
         .background(.regularMaterial)

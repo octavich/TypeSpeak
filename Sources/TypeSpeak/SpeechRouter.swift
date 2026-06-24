@@ -248,14 +248,10 @@ final class SpeechRouter: ObservableObject {
         }
 
         isSpeaking = true
-        status = monitorOn ? "Говорю… (+мониторинг)" : "Говорю…"
 
         // Completion tracked on the mic output (always present).
         micOut.play(buffers) { [weak self] in
-            Task { @MainActor in
-                self?.isSpeaking = false
-                self?.status = "Готово"
-            }
+            Task { @MainActor in self?.isSpeaking = false }
         }
         if monitorOn { monitorOut.play(buffers) }
     }
@@ -266,6 +262,5 @@ final class SpeechRouter: ObservableObject {
         monitorOut.stop()
         pendingBuffers.removeAll()
         isSpeaking = false
-        status = "Остановлено"
     }
 }
