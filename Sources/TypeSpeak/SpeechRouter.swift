@@ -39,9 +39,13 @@ final class SpeechRouter: ObservableObject {
     }
 
     init() {
+        // Guard the whole setup: default-picking in reload* must NOT save()
+        // and clobber stored values before restore() reads them.
+        loading = true
         reloadDevices()
         reloadVoices()
         restore()
+        loading = false
     }
 
     // MARK: - Persistence
