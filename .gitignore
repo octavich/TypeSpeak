@@ -13,3 +13,6 @@ DerivedData/
 
 # Built bundle
 *.app/
+
+# Release artifacts
+*.zip
