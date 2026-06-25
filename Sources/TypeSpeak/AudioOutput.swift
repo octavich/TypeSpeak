@@ -42,7 +42,14 @@ final class AudioOutput {
         player.play()
     }
 
+    /// Fully release the output: stop the player AND the engine, so the
+    /// CoreAudio device (e.g. BlackHole) goes idle and the Mac can sleep.
+    /// Leaving the engine running pins the device active indefinitely.
     func stop() {
         player.stop()
+        engine.stop()
+        engine.reset()
+        deviceID = nil          // force a fresh start on next prepare()
+        format = nil
     }
 }

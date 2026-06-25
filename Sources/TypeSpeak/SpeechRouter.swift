@@ -253,9 +253,16 @@ final class SpeechRouter: ObservableObject {
 
         isSpeaking = true
 
-        // Completion tracked on the mic output (always present).
+        // Completion tracked on the mic output (always present). When playback
+        // ends, fully stop both engines so BlackHole goes idle and the Mac can
+        // sleep — a running engine pins the audio device active indefinitely.
         micOut.play(buffers) { [weak self] in
-            Task { @MainActor in self?.isSpeaking = false }
+            Task { @MainActor in
+                guard let self else { return }
+                self.isSpeaking = false
+                self.micOut.stop()
+                self.monitorOut.stop()
+            }
         }
         if monitorOn { monitorOut.play(buffers) }
     }
